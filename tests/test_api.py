@@ -93,3 +93,4 @@ def test_delete_task_forbidden(client):
 def test_delete_task_not_found(client):
     r = client.delete("/tasks/999", headers={"X-User-Role": "admin"})
     assert r.status_code == 404
+    
