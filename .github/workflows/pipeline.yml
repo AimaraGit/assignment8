@@ -1,0 +1,97 @@
+name: Secure CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main"]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Lint with flake8
+        run: flake8 app/ tests/ --max-line-length=120
+      - name: Run tests
+        run: pytest --cov=app --cov-report=xml -v 2>&1 | tee test-report.txt
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: |
+            test-report.txt
+            coverage.xml
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install security tools
+        run: pip install bandit pip-audit
+      - name: SAST - Bandit
+        run: bandit -r app/ -ll
+      - name: Dependency scan - pip-audit
+        run: pip-audit -r requirements.txt
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            bandit-report.txt
+
+  deploy-staging:
+    name: Deploy - Staging
+    runs-on: ubuntu-latest
+    needs: [build-and-test, security]
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download test report
+        uses: actions/download-artifact@v4
+        with:
+          name: test-report
+      - name: Deploy to staging
+        env:
+          APP_SECRET: ${{ secrets.APP_SECRET }}
+        run: |
+          echo "================================"
+          echo "  DEPLOYING TO: staging"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Time: $(date -u)"
+          echo "================================"
+          echo "Deployment successful!"
+
+  deploy-production:
+    name: Deploy - Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: production
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to production
+        env:
+          APP_SECRET: ${{ secrets.APP_SECRET }}
+        run: |
+          echo "================================"
+          echo "  DEPLOYING TO: production"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Time: $(date -u)"
+          echo "================================"
+          echo "Production deployment successful!"
